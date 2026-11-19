@@ -46,7 +46,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       message: ${{ steps.check.outputs.message }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Compare pinned rev with upstream HEAD
         id: check
@@ -102,7 +102,7 @@ jobs:
         extra-substituters = file:///tmp/nix-bincache
         require-sigs = false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Compute binary cache key
         run: echo "NIX_CACHE_KEY=nix-bincache-Linux-${{ hashFiles('flake.lock', '*.nix') }}" >> "$GITHUB_ENV"
@@ -119,7 +119,7 @@ jobs:
             accept-flake-config = true
 
       - name: Restore local Nix binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/nix-bincache
           key: ${{ env.NIX_CACHE_KEY }}
@@ -190,14 +190,14 @@ jobs:
           fi
 
       - name: Upload AppImage as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: appimage
           path: dist/*.AppImage
           if-no-files-found: error
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: upstream-${{ needs.check.outputs.short }}
           name: Deadworks Launcher ${{ needs.check.outputs.version }} (${{ needs.check.outputs.short }})
