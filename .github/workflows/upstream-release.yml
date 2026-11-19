@@ -113,11 +113,15 @@ jobs:
         run: bash scripts/update-upstream.sh
 
       - name: Build AppImage
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
           set -euo pipefail
           nix build .#appimage
           mkdir -p dist
-          cp -L result dist/
+          # `result` is a symlink whose target has the desired name, but cp
+          # uses the source name, so give the copy an explicit filename.
+          cp -L result "dist/Deadworks-${VERSION}-x86_64-linux.AppImage"
           ls -lh dist
 
       - name: Commit updated pins
