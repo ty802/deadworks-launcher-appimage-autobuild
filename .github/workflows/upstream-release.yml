@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: write # needed to push pins and create releases
+  actions: write # needed to save the local Nix binary cache
 
 concurrency:
   group: upstream-release
@@ -64,9 +65,11 @@ jobs:
           message="$(gh api "repos/${UPSTREAM_REPO}/commits/${latest}" --jq '.commit.message | split("\n")[0]')"
           echo "Upstream HEAD: ${latest} — ${message}"
 
-          echo "rev=${latest}" >> "$GITHUB_OUTPUT"
-          echo "short=${latest:0:7}" >> "$GITHUB_OUTPUT"
-          echo "message=${message}" >> "$GITHUB_OUTPUT"
+          {
+            echo "rev=${latest}"
+            echo "short=${latest:0:7}"
+            echo "message=${message}"
+          } >> "$GITHUB_OUTPUT"
 
           # Version is read from the Tauri config at the upstream rev.
           version="$(gh api "repos/${UPSTREAM_REPO}/contents/launcher/src-tauri/tauri.conf.json?ref=${latest}" \
@@ -92,6 +95,12 @@ jobs:
     if: needs.check.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      # A cached directory of NARs acts as a local binary cache. Unsigned
+      # narinfo files are fine for a file:// cache we control.
+      NIX_CONFIG: |
+        extra-substituters = file:///tmp/nix-bincache
+        require-sigs = false
     steps:
       - uses: actions/checkout@v4
 
@@ -105,6 +114,17 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             accept-flake-config = true
+
+      - name: Restore local Nix binary cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/nix-bincache
+          key: nix-bincache-${{ runner.os }}-${{ hashFiles('flake.lock', '*.nix') }}
+          restore-keys: |
+            nix-bincache-${{ runner.os }}-
+
+      - name: Prepare local binary cache directory
+        run: mkdir -p /tmp/nix-bincache
 
       - name: Refresh pins (rev, lockfile, version, bun hash)
         env:
@@ -123,6 +143,15 @@ jobs:
           # uses the source name, so give the copy an explicit filename.
           cp -L result "dist/Deadworks-${VERSION}-x86_64-linux.AppImage"
           ls -lh dist
+
+      - name: Seed local binary cache with this build's outputs
+        run: |
+          set -euo pipefail
+          # Only our own outputs, not the whole nixpkgs closure (which is
+          # already on cache.nixos.org). --no-recursive keeps the cache small.
+          mapfile -t paths < <(nix build --no-link --print-out-paths .#bunDeps .#deadworks .#appimage)
+          nix copy --to "file:///tmp/nix-bincache?compression=zstd" --no-recursive "${paths[@]}"
+          du -sh /tmp/nix-bincache
 
       - name: Commit updated pins
         env:

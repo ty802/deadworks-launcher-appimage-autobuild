@@ -84,7 +84,18 @@ missing — it:
 4. publishes a GitHub release tagged `upstream-<short-sha>` with the AppImage
    attached.
 
-The workflow needs `contents: write` (already declared) and must live on the
-default branch for the daily schedule to fire. `aarch64-linux` is declared in
-the flake but is not built by the workflow, since GitHub-hosted runners are
-x86_64 only; use a self-hosted ARM runner to add it.
+The workflow needs `contents: write` and `actions: write` (both already
+declared) and must live on the default branch for the daily schedule to fire.
+
+Builds are sped up by a **local binary cache**: after each run, the outputs of
+`.#bunDeps`, `.#deadworks` and `.#appimage` are exported as compressed NARs into
+`/tmp/nix-bincache`, which `actions/cache` persists between runs. The next run
+registers that directory as a `file://` substituter, so unchanged derivations —
+including the Rust compilation — are fetched instead of rebuilt. It caches
+whole outputs, so a changed upstream rev still triggers a fresh compile;
+incremental compilation across source changes would need something like
+`sccache`.
+
+`aarch64-linux` is declared in the flake but is not built by the workflow,
+since GitHub-hosted runners are x86_64 only; use a self-hosted ARM runner to
+add it.
