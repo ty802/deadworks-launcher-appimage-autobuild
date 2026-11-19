@@ -104,6 +104,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute binary cache key
+        run: echo "NIX_CACHE_KEY=nix-bincache-Linux-${{ hashFiles('flake.lock', '*.nix') }}" >> "$GITHUB_ENV"
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
@@ -119,7 +122,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/nix-bincache
-          key: nix-bincache-${{ runner.os }}-${{ hashFiles('flake.lock', '*.nix') }}
+          key: ${{ env.NIX_CACHE_KEY }}
           restore-keys: |
             nix-bincache-${{ runner.os }}-
 
@@ -147,11 +150,29 @@ jobs:
       - name: Seed local binary cache with this build's outputs
         run: |
           set -euo pipefail
+          # Start from an empty cache so NARs from earlier runs cannot
+          # accumulate inside this one (restore-keys may have brought some in).
+          rm -rf /tmp/nix-bincache/*
           # Only our own outputs, not the whole nixpkgs closure (which is
           # already on cache.nixos.org). --no-recursive keeps the cache small.
           mapfile -t paths < <(nix build --no-link --print-out-paths .#bunDeps .#deadworks .#appimage)
           nix copy --to "file:///tmp/nix-bincache?compression=zstd" --no-recursive "${paths[@]}"
           du -sh /tmp/nix-bincache
+
+      - name: Prune stale binary caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/caches" \
+            --jq ".actions_caches[]
+                  | select(.key | startswith(\"nix-bincache-\"))
+                  | select(.key != \"${NIX_CACHE_KEY}\")
+                  | .id" \
+          | while read -r id; do
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" >/dev/null
+              echo "deleted stale cache ${id}"
+            done
 
       - name: Commit updated pins
         env:

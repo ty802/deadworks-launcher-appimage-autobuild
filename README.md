@@ -91,10 +91,12 @@ Builds are sped up by a **local binary cache**: after each run, the outputs of
 `.#bunDeps`, `.#deadworks` and `.#appimage` are exported as compressed NARs into
 `/tmp/nix-bincache`, which `actions/cache` persists between runs. The next run
 registers that directory as a `file://` substituter, so unchanged derivations —
-including the Rust compilation — are fetched instead of rebuilt. It caches
-whole outputs, so a changed upstream rev still triggers a fresh compile;
-incremental compilation across source changes would need something like
-`sccache`.
+including the Rust compilation — are fetched instead of rebuilt. Before seeding,
+the restored directory is wiped so NARs cannot accumulate, and a final step
+deletes any older `nix-bincache-*` GitHub Actions caches so only one remains.
+It caches whole outputs, so a changed upstream rev still triggers a fresh
+compile; incremental compilation across source changes would need something
+like `sccache`.
 
 `aarch64-linux` is declared in the flake but is not built by the workflow,
 since GitHub-hosted runners are x86_64 only; use a self-hosted ARM runner to
