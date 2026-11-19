@@ -68,8 +68,11 @@ the new hash to paste into `package.nix`. Rust dependencies come from
 
 ## Automated daily releases
 
-`.github/workflows/upstream-release.yml` runs once a day (and can be triggered
-manually with **Run workflow**). It compares the pinned `rev` with the upstream
+`.github/workflows/upstream-release.yml` runs once a day and is also
+dispatchable three ways: manually with **Run workflow**, through the REST API
+(`repository_dispatch` with event type `upstream-release`), and as a reusable
+workflow via `workflow_call`. A `force` input/input payload rebuilds even when
+already up to date. It compares the pinned `rev` with the upstream
 default-branch HEAD. When they differ — or when the release for that rev is
 missing — it:
 

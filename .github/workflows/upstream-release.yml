@@ -12,6 +12,17 @@ on:
         description: "Force a rebuild even when already up to date"
         type: boolean
         default: false
+  # Dispatch via the REST API: POST /repos/{owner}/{repo}/dispatches
+  # with {"event_type":"upstream-release","client_payload":{"force":true}}
+  repository_dispatch:
+    types: [upstream-release]
+  # Reusable from another workflow via `uses: ./.github/workflows/upstream-release.yml`
+  workflow_call:
+    inputs:
+      force:
+        description: "Force a rebuild even when already up to date"
+        type: boolean
+        default: false
 
 permissions:
   contents: write # needed to push pins and create releases
@@ -40,7 +51,7 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          FORCE: ${{ inputs.force }}
+          FORCE: ${{ inputs.force || github.event.client_payload.force || false }}
         run: |
           set -euo pipefail
 
