@@ -153,10 +153,13 @@ jobs:
           # Start from an empty cache so NARs from earlier runs cannot
           # accumulate inside this one (restore-keys may have brought some in).
           rm -rf /tmp/nix-bincache/*
-          # Only our own outputs, not the whole nixpkgs closure (which is
-          # already on cache.nixos.org). --no-recursive keeps the cache small.
+          # Nix requires a stored path's references to exist in the destination
+          # cache, so copy the closures of our three outputs (--no-recursive
+          # fails on the wrapped launcher's library references). Size stays
+          # bounded because this directory is wiped every run and old cache
+          # entries are pruned below.
           mapfile -t paths < <(nix build --no-link --print-out-paths .#bunDeps .#deadworks .#appimage)
-          nix copy --to "file:///tmp/nix-bincache?compression=zstd" --no-recursive "${paths[@]}"
+          nix copy --to "file:///tmp/nix-bincache?compression=zstd" "${paths[@]}"
           du -sh /tmp/nix-bincache
 
       - name: Prune stale binary caches

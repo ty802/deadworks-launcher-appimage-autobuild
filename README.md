@@ -87,7 +87,7 @@ missing — it:
 The workflow needs `contents: write` and `actions: write` (both already
 declared) and must live on the default branch for the daily schedule to fire.
 
-Builds are sped up by a **local binary cache**: after each run, the outputs of
+Builds are sped up by a **local binary cache**: after each run, the closures of
 `.#bunDeps`, `.#deadworks` and `.#appimage` are exported as compressed NARs into
 `/tmp/nix-bincache`, which `actions/cache` persists between runs. The next run
 registers that directory as a `file://` substituter, so unchanged derivations —
