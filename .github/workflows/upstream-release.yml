@@ -1,0 +1,148 @@
+name: Upstream update & release
+
+# Once a day, compare the rev pinned in flake.nix with the upstream default
+# branch. If it moved (or the release for that rev is missing), refresh the
+# pins, build the AppImage, commit the pins back, and publish a release.
+on:
+  schedule:
+    - cron: "23 6 * * *" # 06:23 UTC daily
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force a rebuild even when already up to date"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # needed to push pins and create releases
+
+concurrency:
+  group: upstream-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: Deadworks-net/deadworks
+
+jobs:
+  check:
+    name: Check upstream
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      rev: ${{ steps.check.outputs.rev }}
+      short: ${{ steps.check.outputs.short }}
+      version: ${{ steps.check.outputs.version }}
+      message: ${{ steps.check.outputs.message }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned rev with upstream HEAD
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          current="$(sed -nE 's#.*github:Deadworks-net/deadworks\?dir=launcher&rev=([0-9a-f]{40}).*#\1#p' flake.nix | head -n1)"
+          echo "Pinned upstream rev: ${current:-<none>}"
+
+          # The flake rev is a whole-repository commit, so track the default
+          # branch HEAD rather than commits filtered to launcher/.
+          latest="$(gh api "repos/${UPSTREAM_REPO}/commits?per_page=1" --jq '.[0].sha')"
+          message="$(gh api "repos/${UPSTREAM_REPO}/commits/${latest}" --jq '.commit.message | split("\n")[0]')"
+          echo "Upstream HEAD: ${latest} — ${message}"
+
+          echo "rev=${latest}" >> "$GITHUB_OUTPUT"
+          echo "short=${latest:0:7}" >> "$GITHUB_OUTPUT"
+          echo "message=${message}" >> "$GITHUB_OUTPUT"
+
+          # Version is read from the Tauri config at the upstream rev.
+          version="$(gh api "repos/${UPSTREAM_REPO}/contents/launcher/src-tauri/tauri.conf.json?ref=${latest}" \
+            --jq '.content' | base64 --decode | jq -r '.version // empty')"
+          if [[ -z "$version" || "$version" == "null" ]]; then
+            version="$(sed -nE 's/^[[:space:]]*version = "([^"]+)";$/\1/p' package.nix | head -n1)"
+            echo "::warning::Could not read upstream version; keeping ${version}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+          tag="upstream-${latest:0:7}"
+          if [[ "$current" == "$latest" ]] && gh release view "$tag" >/dev/null 2>&1 && [[ "$FORCE" != "true" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already at ${latest} and release ${tag} exists; nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Will update and release ${tag}."
+          fi
+
+  build:
+    name: Build & release
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af || true
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Refresh pins (rev, lockfile, version, bun hash)
+        env:
+          REV: ${{ needs.check.outputs.rev }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: bash scripts/update-upstream.sh
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          nix build .#appimage
+          mkdir -p dist
+          cp -L result dist/
+          ls -lh dist
+
+      - name: Commit updated pins
+        env:
+          REV: ${{ needs.check.outputs.rev }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.nix flake.lock package.nix
+          if git diff --cached --quiet; then
+            echo "No pin changes to commit."
+          else
+            git commit -m "chore: update Deadworks upstream to ${REV}"
+            git push
+          fi
+
+      - name: Upload AppImage as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: upstream-${{ needs.check.outputs.short }}
+          name: Deadworks Launcher ${{ needs.check.outputs.version }} (${{ needs.check.outputs.short }})
+          body: |
+            Automated build of upstream commit [`${{ needs.check.outputs.short }}`](https://github.com/Deadworks-net/deadworks/commit/${{ needs.check.outputs.rev }}).
+
+            > ${{ needs.check.outputs.message }}
+
+            Built with Nix; the AppImage carries its own WebKitGTK/GTK closure.
+          files: dist/*.AppImage
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
