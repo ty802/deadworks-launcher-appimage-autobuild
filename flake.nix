@@ -8,7 +8,7 @@
     # the subdirectory that contains the Tauri application and `flake = false`
     # makes it plain source for us to build.
     deadworks = {
-      url = "github:Deadworks-net/deadworks?dir=launcher&rev=d210ecf2f3dc61b163e501f9fccd3b23b89dfd2d";
+      url = "github:Deadworks-net/deadworks?dir=launcher&rev=585918857a7ad4a78a0d51476637f5621b9196df";
       flake = false;
     };
 
